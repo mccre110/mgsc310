@@ -1,0 +1,354 @@
+---
+title: "exam1"
+author: "Corey McCrea"
+subtitle: MGSC 310 Exam 1
+date: "10/31/2020"
+output:
+  html_document:
+    df_print: paged
+  html_notebook: default
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+library("readr")
+library("tidyverse")
+library("rsample")
+library('glmnet')
+library('glmnetUtils')
+library("ggplot2")
+library("ggridges")
+library('forcats')
+library('broom')
+# As long as you are working in a Rstudio Project file, you shouldn't need to 'hard code' directories like this 
+# change to your own working directory
+# knitr::opts_knit$set(root.dir = 'C:/Users/hersh/Dropbox/Chapman/Teaching/MGSC_310/Fall_2019/problem_sets')
+# setwd('C:/Users/hersh/Dropbox/Chapman/Teaching/MGSC_310/Fall_2019/problem_sets')
+
+# set seed to your own favorite number
+set.seed(1818)
+options(width=70)
+options(scipen=99)
+
+
+# general rchunk code options
+
+# this sets text to small
+opts_chunk$set(tidy.opts=list(width.wrap=50),tidy=TRUE, size = "vsmall")  
+opts_chunk$set(message = FALSE,                                          
+               warning = FALSE,
+               # "caching" stores objects in code chunks and only rewrites if you change things
+               cache = TRUE,                               
+               # automatically downloads dependency files
+               autodep = TRUE,
+               # 
+               cache.comments = FALSE,
+               # 
+               collapse = TRUE,
+               fig.width = 5,  
+               fig.height = 4,
+               fig.align='center')
+
+
+```
+
+## Question 1
+
+1a) See below
+
+```{r}
+
+wages_train <- read.csv(here::here("datasets", "wages_train.csv"), stringsAsFactors = TRUE)
+wages_test <- read.csv(here::here("datasets", "wages_test.csv"), stringsAsFactors = TRUE)
+
+```
+
+
+1b) Use glimpse
+```{r}
+glimpse(wages_test)
+glimpse(wages_train)
+```
+1c) The factor variables in this dataset are union, ethnicity, married, health, industry, occupation and residence. A factor is an R data type which enables certain functions to be called. A factor represents categorical variables which have limited sets of values and sometimes can be ordered. Factors have levels are are divided into categories which allows different functions to be called rather than just a integer or double. Factors have a numerical value associated with each level to allow for faster computing as well.
+
+1d) Farm Laborers and Foreman seems to have the most concentrated distribution while Sales workers have the most widely distributed wage.
+```{r}
+ggplot(wages_train, aes(x = wage, y = occupation)) + geom_density_ridges()
+
+```
+1e) Professional, Technical and Kindred has the highest average salaries, Sales Workers have the highest standard deviation of wages. This confirms my earlier assumption about sales workers from the ggridge plot.
+```{r}
+wages_train %>% group_by(occupation) %>% summarize( AVG = mean(wage,na.rm=TRUE), SD= sd(wage,na.rm=TRUE))
+
+```
+1f) Build a linear regression model
+```{r}
+lm_mod1 <- lm(wage ~ school + experience + occupation + union, 
+          data = wages_train)
+summary(lm_mod1)
+```
+1g) For every one unit increase of school we would expect to see a 6997 dollar increase in wage. Assuming all other predictors are held static, being in a union would increase wages by 13081 dollars compared to not being in a union. For every one unit increase of experience we would expect to see a 3101 dollar increase in wage. 
+
+1h) Assuming all other variables are held static, being a farm laborer or foreman would decrease wages by 18133 dollars compared to a Clerical and Kindred worker.
+
+1i) The p-value tells us how statistically significant a relationship is, lower meaning a stronger relationship. A p-value of .004 means that we reject the null hypothesis. Assuming the null hypothesis is true, we should expect to get a result as extreme as this .04% of the time.
+
+
+1j) Mutate and do a Log regression
+```{r}
+ wages_train <- wages_train  %>% 
+  mutate(lexperience = log(experience + 1),lwage = log(wage + 1),lschool = log(school + 1))
+lm_mod2 <- lm(lwage ~ lschool + lexperience,
+           data = wages_train)
+summary(lm_mod2)
+```
+1k)  A 1 percent increase in lschool would result in a 1.31 percent increase in lwage. A 1 percent increase in lexperience would result in a .34 percent increase in lwage.
+
+
+# Question 2
+
+2a)
+```{r}
+wages_train <- wages_train %>% select(-lschool,-lexperience,-lwage)
+ridge_mod <- cv.glmnet(wage ~ ., 
+                       data = wages_train, alpha = 0)
+print(ridge_mod)
+```
+2b)
+```{r}
+lasso_mod <- cv.glmnet(wage ~ ., 
+                       data = wages_train, alpha = 1)
+print(lasso_mod)
+```
+2c) On the x-axis we have log of lambda which is the amount of regularization applied. On the y-axis we have the amount of error. We see that the error starts low and relatively static until about log lambda of 7 where the error sharply increases. We also see two vertical dashed lines at roughly log lambda of 3 and 8 these are two important values that stand for lambda min, which has the lowest error and lambda 1se which has the lowest error with the most regularization applied. 
+```{r}
+plot(lasso_mod)
+```
+
+
+2d) Estimate with a linear model
+```{r}
+lm_mod3 <- lm(wage ~ .,
+           data = wages_train)
+summary(lm_mod3)
+```
+2e) 
+```{r}
+library("data.table")
+
+coefs1 <- data.frame(
+  `ridge` = as.matrix(coef(ridge_mod, 
+    s = "lambda.min")) %>% round(3),
+  `lasso` = as.matrix(coef(ridge_mod, 
+    s = "lambda.min")) %>% round(3))%>% rename(ridge_lambda_min = 1)%>% rename(lasso_lambda_min = 2)
+
+coefs2 <- data.frame(
+  `linear` = lm_mod3$coefficients)
+
+print(coefs1)
+print(coefs2)
+
+```
+
+2f) unionyes, ethnicityhisp, marriedyes, industryOther, occupationClerical_and_kindred, residencesouth have all shrunk to zero. This means that with the regularization applied with the lasso model it has found that these are the least significant variables.
+
+2g) Create an elastic net model
+```{r}
+alpha_list <- seq(0,1, by = 0.1)
+enet_mod <- cva.glmnet(wage ~ .,
+                       data = wages_train,
+                       alpha = alpha_list)
+print(enet_mod)
+```
+2h) On the x-axis we have alpha values and on the y-axis we have loss. An alpha of zero gives us the lowest loss and then loss significantly increases with the following points.
+```{r}
+minlossplot(enet_mod, 
+            cv.type = "min")
+```
+2i)
+```{r}
+get_alpha <- function(fit) {
+  alpha <- fit$alpha
+  error <- sapply(fit$modlist, 
+                  function(mod) {min(mod$cvm)})
+  alpha[which.min(error)]
+}
+get_model_params <- function(fit) {
+  alpha <- fit$alpha
+  lambdaMin <- sapply(fit$modlist, `[[`, "lambda.min")
+  lambdaSE <- sapply(fit$modlist, `[[`, "lambda.1se")
+  error <- sapply(fit$modlist, function(mod) {min(mod$cvm)})
+  best <- which.min(error)
+  data.frame(alpha = alpha[best], lambdaMin = lambdaMin[best],
+             lambdaSE = lambdaSE[best], eror = error[best])
+}
+
+best_alpha <- get_alpha(enet_mod)
+get_model_params(enet_mod)
+best_mod <- enet_mod$modlist[[which(enet_mod$alpha == best_alpha)]]
+```
+2j)
+
+
+```{r}
+train_preds_lm <- predict(lm_mod3, newdata = wages_train)
+test_preds_lm <- predict(lm_mod3, newdata = wages_test)
+
+train_preds_lasso <- predict(lasso_mod, s = lasso_mod$lambda.1se, newdata = wages_train)
+test_preds_lasso <- predict(lasso_mod, s = lasso_mod$lambda.1se, newdata = wages_test)
+
+train_preds_ridge <- predict(ridge_mod, s = ridge_mod$lambda.1se, newdata = wages_train)
+test_preds_ridge <- predict(ridge_mod, s = ridge_mod$lambda.1se, newdata = wages_test)
+
+
+results_test <- data.frame(
+  `true` = wages_test$wage,
+  `ridge` = test_preds_ridge,
+  `lasso` = test_preds_lasso,
+  `linear` = test_preds_lm) %>% rename(lasso = 2) %>% rename(ridge = 3)
+
+
+results_train <- data.frame(
+  `true` = wages_train$wage,
+  `ridge` = train_preds_ridge,
+  `lasso` = train_preds_lasso,
+  `linear` = train_preds_lm)  %>% rename(lasso = 2) %>% rename(ridge = 3)
+
+```
+
+
+
+2k)
+```{r}
+ggplot(results_train, aes(true, linear)) + geom_point() + theme_minimal() + ggtitle("Train Linear")+ xlim(0, 250000) + ylim(0,250000)
+ggplot(results_test, aes(true, linear)) + geom_point() + theme_minimal() + ggtitle("Test Linear")+ xlim(0, 250000) + ylim(0,250000)
+ggplot(results_train, aes(true, ridge)) + geom_point() + theme_minimal() + ggtitle("Train Ridge")+ xlim(0, 250000) + ylim(0,250000)
+ggplot(results_test, aes(true, ridge)) + geom_point() + theme_minimal() + ggtitle("Test Ridge")+ xlim(0, 250000) + ylim(0,250000)
+ggplot(results_train, aes(true, lasso)) + geom_point() + theme_minimal() + ggtitle("Train Lasso")+ xlim(0, 250000) + ylim(0,250000)
+ggplot(results_test, aes(true, lasso)) + geom_point() + theme_minimal() + ggtitle("Test Lasso")+ xlim(0, 250000) + ylim(0,250000)
+```
+
+2l) The overall fit of this model is good. we know it is not overfit because the error between the test and training sets for each of these models is fairly consistent. It looks as if the linear model preforms best here. It has the lowest rmse and the true vs predicted plot looks to be the most accurate.
+```{r}
+library('yardstick')
+rmse(results_test, true, linear)
+rmse(results_test, true, ridge)
+rmse(results_test, true, lasso)
+rmse(results_train, true, linear)
+rmse(results_train, true, ridge)
+rmse(results_train, true, lasso)
+```
+2m) This model has a decent fit but not excellent. It consistently underestimates higher incomes which could have important ramifications depending on the application. Because there are few people making high salaries it could be beneficial to upsample or downsample as this could be a class imbalance issue. Another potential solution would be to switch the validation method as it could also be a sampleing issue.
+
+# Question 3
+
+3a)
+```{r}
+default_train <- read.csv(here::here("datasets", "default_train.csv"))
+default_test <- read.csv(here::here("datasets", "default_test.csv"))
+default_train <- default_train %>% mutate(default = factor(default),
+                            real_estate_loan = factor(real_estate_loan),
+                            ever_past_due = factor(ever_past_due))
+default_test<- default_test %>% mutate(default = factor(default),
+                            real_estate_loan = factor(real_estate_loan),
+                            ever_past_due = factor(ever_past_due))
+```
+
+
+3b)
+```{r}
+glimpse(default_train)
+glimpse(default_test)
+```
+3c)
+```{r}
+default_logit <- glm(default ~ income + real_estate_loan + age + ever_past_due,
+                  family = binomial,
+                  data = default_train)
+summary(default_logit)
+```
+3d) Holding other predictors static, having a real estate loan reduces the log odds of defaulting by .3 compared to not having a real estate loan. Holding other predictors static, every being past due increases the log odds of defaulting by 1.76 compared to not ever being past due. 
+
+3e) We cannot say that real estate loans has a causal impact on default because there could be other variables that we do not see in our model that also impact this and real estate loan only show part of this relation. This also has a very small impact in our model so we would have to look at model accuracy as well in order to make this assertion.
+
+3f) When we exponentiate our coefficient output from a logistic regression we observe a multiplicative change in the odds. Without exponentiating we observe a constant additive increase or decrease in log odds.The null hypothesis for the exponentiated coefficients would be that these is no odds correlation between the odds of defaulting and any of these predictors.
+
+3g)
+```{r}
+preds_train <- predict(default_logit, type = "response", newdata = default_train)
+preds_test <- predict(default_logit, type = "response", newdata = default_test)
+
+library('yardstick')
+
+results_train <- data.frame(
+  `truth` = default_train %>%
+    select(default) %>% 
+    mutate(default = as.numeric(default)),
+  `Class1` =  preds_train,
+  `type` = rep("train",length(preds_train))
+)
+
+results_test <- data.frame(
+  `truth` = default_test %>% 
+    select(default) %>% 
+    mutate(default = as.numeric(default)),
+  `Class1` =  preds_test,
+  `type` = rep("test",length(preds_test))
+)
+
+```
+
+3h)
+```{r}
+library('plotROC')
+
+p1 <- ggplot(results_train, 
+            aes(m = Class1, d = default)) + 
+  geom_roc(labelsize = 3.5, 
+           cutoffs.at = 
+             c(0.99,0.9,0.7,0.5,0.3,0.1,0)) +
+  theme_minimal(base_size = 16) + ggtitle("Train")
+p2 <- ggplot(results_test, 
+            aes(m = Class1, d = default)) + 
+  geom_roc(labelsize = 3.5, 
+           cutoffs.at = 
+             c(0.99,0.9,0.7,0.5,0.3,0.1,0)) +
+  theme_minimal(base_size = 16) + ggtitle("Test")
+
+print(p1)
+print(p2)
+```
+
+3i) This model seems to be fit very well. We know this from both the ROC plot not having a large descrepency between the test and training curves. Both of the curves are very similar so we know the model is not overfit to our data otherwise the accuracy for the new data in the test model would be very poor. This is mirrored in the AUC numbers both being right around .75.
+```{r}
+calc_auc(p1)
+calc_auc(p2)
+```
+3j)produce confusion matrices
+```{r}
+
+results_test <- data.frame(
+  `truth` = default_test %>% 
+    select(default) %>% 
+    mutate(default = as.factor(default)),
+  `Class1` =  preds_test,
+  `type` = rep("test",length(preds_test)),
+   `predicted` = as.factor(ifelse(preds_test > 0.1,
+                                 "1","0"))
+)
+
+cmTest <- conf_mat(results_test, 
+               truth = default,
+               estimate = predicted)
+print(cmTest)
+```
+3k) Here we see that Specificity is much higher than Sensitivity. This mean that our model calculates negatives much better than positives.
+```{r}
+testCon <- data_frame(
+  `Accuracy` = ((10306+439)/(10306+439+1740+451)),
+  `Sensitivity` = 439/(439+451),
+  `Specificity` = 10306/(10306+1740)
+)
+
+print(testCon)
+```

@@ -1,0 +1,316 @@
+---
+title: "Problem Set 3"
+author: "Corey McCrea"
+subtitle: MGSC 310 Problem Set 3
+output:
+  html_document:
+    df_print: paged
+  html_notebook: default
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+# As long as you are working in a Rstudio Project file, you shouldn't need to 'hard code' directories like this 
+# change to your own working directory
+# knitr::opts_knit$set(root.dir = 'C:/Users/hersh/Dropbox/Chapman/Teaching/MGSC_310/Fall_2019/problem_sets')
+# setwd('C:/Users/hersh/Dropbox/Chapman/Teaching/MGSC_310/Fall_2019/problem_sets')
+
+# set seed to your own favorite number
+set.seed(1818)
+options(width=70)
+options(scipen=99)
+
+
+# general rchunk code options
+
+# this sets text to small
+opts_chunk$set(tidy.opts=list(width.wrap=50),tidy=TRUE, size = "vsmall")  
+opts_chunk$set(message = FALSE,                                          
+               warning = FALSE,
+               # "caching" stores objects in code chunks and only rewrites if you change things
+               cache = TRUE,                               
+               # automatically downloads dependency files
+               autodep = TRUE,
+               # 
+               cache.comments = FALSE,
+               # 
+               collapse = TRUE,
+               fig.width = 5,  
+               fig.height = 4,
+               fig.align='center')
+
+
+```
+
+
+
+## Question 1
+
+
+
+1a) See below
+
+```{r}
+library("tidyverse")
+library("forcats")
+movies <- read.csv(here::here("datasets", "IMDB_movies.csv"))
+
+movies_clean <- movies %>% mutate(budgetM = budget/1000000, grossM = gross/1000000, 
+    profitM = grossM - budgetM, ROI = profitM/budgetM, blockbuster = ifelse(profitM > 
+        100, 1, 0) %>% factor(., levels = c("0", "1")), blockbuster_numeric = ifelse(profitM > 
+        100, 1, 0), genre_main = as.factor(unlist(map(strsplit(as.character(movies$genres), 
+        "\\|"), 1))) %>% fct_lump(12), rating_simple = fct_lump(content_rating, 
+        n = 6)) %>% filter(budget < 400000000, content_rating != 
+    "", content_rating != "Not Rated") %>% mutate(rating_simple = rating_simple %>% 
+    fct_drop()) %>% rename(director = director_name, title = movie_title, 
+    year = title_year) %>% select(-c(actor_1_name, actor_2_name, 
+    actor_3_name, actor_1_facebook_likes, actor_2_facebook_likes, 
+    actor_3_facebook_likes, movie_imdb_link, budget, gross, aspect_ratio, 
+    num_voted_users, num_user_for_reviews)) %>% relocate(title, 
+    year, country, director, budgetM, grossM, profitM, ROI, imdb_score, 
+    genre_main, rating_simple, language, duration) %>% distinct()
+```
+
+
+1b) Test/train split
+```{r}
+library("rsample")
+set.seed(1818)
+
+movies_split <- initial_split(movies_clean, prop = .7)
+movies_train <- training(movies_split)
+movies_test <- testing(movies_split)
+```
+
+
+1c) Fit a logistic regression model
+```{r}
+movies_logit1 <- glm(blockbuster ~ imdb_score + budgetM + year + director_facebook_likes + genre_main,
+                  family = binomial,
+                  data = movies_train)
+summary(movies_logit1)
+```
+
+
+1d) Exponentiate the coefficients
+```{r}
+exp(movies_logit1$coefficients)
+
+```
+1e) Assuming all variables are held static besides genre, Crime movies have an 85% lower probability of blockbuster compared to Action movies.
+
+1f) Assuming all other stats are constant, a one unit increase in imdb score will have a 264% higher probability of blockbuster.
+
+1g) Generate predicted probabilities
+```{r}
+preds_train <- predict(movies_logit1, type = "response", newdata = filter(movies_train, complete.cases(blockbuster)))
+preds_test <- predict(movies_logit1, type = "response", newdata = filter(movies_test, complete.cases(blockbuster)))
+head(preds_train)
+head(preds_test)
+```
+
+1h) Filter missing values and create results data for test and train
+```{r}
+library('yardstick')
+
+results_train <- data.frame(
+  `truth` = movies_train %>% 
+     filter(!is.na(blockbuster),
+             !is.na(imdb_score),
+             !is.na(budgetM),
+             !is.na(year),
+             !is.na(director_facebook_likes),
+             !is.na(genre_main)) %>% 
+    select(blockbuster) %>% 
+    mutate(blockbuster = as.numeric(blockbuster)),
+  `Class1` =  preds_train,
+  `type` = rep("train",length(preds_train))
+     )
+
+results_test <- data.frame(
+  `truth` = movies_test %>% 
+     filter(!is.na(blockbuster),
+             !is.na(imdb_score),
+             !is.na(budgetM),
+             !is.na(year),
+             !is.na(director_facebook_likes),
+             !is.na(genre_main)) %>% 
+    select(blockbuster) %>% 
+    mutate(blockbuster = as.numeric(blockbuster)),
+  `Class1` =  preds_test,
+  `type` = rep("test",length(preds_test))
+     )
+
+# results_train <- data.frame(
+#   `truth` = movies_train %>% 
+#     filter(complete.cases(imdb_score, budgetM, year, director_facebook_likes, genre_main, blockbuster)) %>% 
+#     select(blockbuster_numeric),
+#   `Class1` =  preds_train)
+# results_test <- data.frame(
+#   `truth` = movies_test %>% 
+#     filter(complete.cases(imdb_score, budgetM, year, director_facebook_likes, genre_main, blockbuster)) %>% 
+#     select(blockbuster_numeric),
+#   `Class1` =  preds_test)
+
+head(results_train)
+head(results_test)
+
+```
+
+
+
+1i) ROC Plots
+```{r}
+library('ggplot2')
+library('plotROC')
+
+p1 <- ggplot(results_train, 
+            aes(m = Class1, d = blockbuster)) + 
+  geom_roc(labelsize = 3.5, 
+           cutoffs.at = 
+             c(0.99,0.9,0.7,0.5,0.3,0.1,0)) +
+  theme_minimal(base_size = 16) + ggtitle("Train")
+p2 <- ggplot(results_test, 
+            aes(m = Class1, d = blockbuster)) + 
+  geom_roc(labelsize = 3.5, 
+           cutoffs.at = 
+             c(0.99,0.9,0.7,0.5,0.3,0.1,0)) +
+  theme_minimal(base_size = 16) + ggtitle("Test")
+
+print(p1)
+print(p2)
+
+```
+
+1j) This plot shows us the trade of between true positives and false positives for picking different probability cut offs. For a **.1** cut off we see that we have roughly **63%** true positives and **13%** false positives. For a **.5** cut off we see that we have roughly **12%** true positives and **0%** false positives. This means that we can choose between having a model that has no false positives but misses some trues or a model that catches more trues but has more false positives.
+
+
+##Question 2
+
+2a) AUC for test and training
+```{r}
+calc_auc(p1)
+
+calc_auc(p2)
+
+
+```
+
+
+2b) Based on these two AUCs I think that the model seems to be a bit over fit because the AUC is lover for the testing model.
+
+2c) This could be remedied by changing the number of predictors or adjusting the size of train test split.
+
+2d) Fitting another model
+```{r}
+movies_logit2 <- glm(blockbuster ~ imdb_score + budgetM + year,
+                  family = binomial,
+                  data = movies_train)
+summary(movies_logit2)
+```
+
+2e) Predict testing and training sets
+```{r}
+preds_train2 <- predict(movies_logit1, type = "response", newdata = filter(movies_train, complete.cases(blockbuster)))
+preds_test2 <- predict(movies_logit1, type = "response", newdata = filter(movies_test, complete.cases(blockbuster)))
+head(preds_train2)
+head(preds_test2)
+
+```
+2f) Mean of Blockbuster Columns
+```{r}
+mean(movies_test$blockbuster_numeric,na.rm=TRUE)
+mean(movies_train$blockbuster_numeric,na.rm=TRUE)
+```
+2g) Busters_01 returns the highest average predicted blockbusters so we should select a **.1** threshold.
+```{r}
+temp_test <- data.frame(
+  `busters_01` = ifelse(preds_test2 > 0.1, 1,0),
+  `busters_02` = ifelse(preds_test2 > 0.2, 1,0),
+  `busters_03` = ifelse(preds_test2 > 0.3, 1,0),
+  `busters_04` = ifelse(preds_test2 > 0.4, 1,0),
+  `busters_05` = ifelse(preds_test2 > 0.5, 1,0),
+  `busters_06` = ifelse(preds_test2 > 0.6, 1,0),
+  `busters_07` = ifelse(preds_test2 > 0.7, 1,0),
+  `busters_08` = ifelse(preds_test2 > 0.8, 1,0),
+  `busters_09` = ifelse(preds_test2 > 0.9, 1,0))
+  map(temp_test,mean)
+```
+
+2h) Generate new results data
+```{r}
+results_train2 <- data.frame(
+  `truth` = movies_train %>% 
+     filter(!is.na(blockbuster),
+             !is.na(imdb_score),
+             !is.na(budgetM),
+             !is.na(year),
+             !is.na(director_facebook_likes),
+             !is.na(genre_main)) %>% 
+    select(blockbuster) %>% 
+    mutate(blockbuster = as.factor(blockbuster)),
+  `Class1` =  preds_train2,
+  `type` = rep("train",length(preds_train2)),
+  `predicted` = as.factor(ifelse(preds_train2 > 0.1,
+                                 "1","0"))
+     )
+
+results_test2 <- data.frame(
+  `truth` = movies_test %>% 
+     filter(!is.na(blockbuster),
+             !is.na(imdb_score),
+             !is.na(budgetM),
+             !is.na(year),
+             !is.na(director_facebook_likes),
+             !is.na(genre_main)) %>% 
+    select(blockbuster) %>% 
+    mutate(blockbuster = as.factor(blockbuster)),
+  `Class1` =  preds_test2,
+  `type` = rep("test",length(preds_test2)),
+  `predicted` = as.factor(ifelse(preds_test2 > 0.1,
+                                 "1","0"))
+     )
+
+head(results_train2)
+head(results_test2)
+
+```
+2i) Confusion Matrix
+```{r}
+cmTrain <- conf_mat(results_train2, 
+                    truth = blockbuster,
+               estimate = predicted)
+cmTest <- conf_mat(results_test2, 
+               truth = blockbuster,
+               estimate = predicted)
+print(cmTrain)
+print(cmTest)
+```
+2j) Calculate the accuracy, sensitivity and specificity
+```{r}
+testCon <- data_frame(
+  `Accuracy` = c((2136+101)/(55+101+2136+296), (33+920)/(29+33+920+136)),
+
+  `Sensitivity` = c(101/(55+101),33/(29+33)),
+
+  `Specificity` = c(2136/(296+2136),920/(136+920)),
+  `type` = c("train","test")
+)
+
+print(testCon)
+```
+2k) The fit of this model seems to be just about right, not over or under fit. Both the accuracy and the specificity values for both sets are very close, however sensitivity is off by **.11** which means our fit could probably be improved slightly more. Sensitivity reveals how the model preforms on the positive class. Specificity reveals how the model preforms on the negative class. Comparing these leads us to the model better estimating the negative class rather than the positive class. This could be due to a class imbalance as there are more negative then positive classifications.
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,199 @@
+---
+title: "Problem Set 4"
+author: "Corey McCrea"
+subtitle: MGSC 310 Problem Set 4
+output:
+  html_document:
+    df_print: paged
+  html_notebook: default
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+# As long as you are working in a Rstudio Project file, you shouldn't need to 'hard code' directories like this 
+# change to your own working directory
+# knitr::opts_knit$set(root.dir = 'C:/Users/hersh/Dropbox/Chapman/Teaching/MGSC_310/Fall_2019/problem_sets')
+# setwd('C:/Users/hersh/Dropbox/Chapman/Teaching/MGSC_310/Fall_2019/problem_sets')
+
+# set seed to your own favorite number
+set.seed(1818)
+options(width=70)
+options(scipen=99)
+
+
+# general rchunk code options
+
+# this sets text to small
+opts_chunk$set(tidy.opts=list(width.wrap=50),tidy=TRUE, size = "vsmall")  
+opts_chunk$set(message = FALSE,                                          
+               warning = FALSE,
+               # "caching" stores objects in code chunks and only rewrites if you change things
+               cache = TRUE,                               
+               # automatically downloads dependency files
+               autodep = TRUE,
+               # 
+               cache.comments = FALSE,
+               # 
+               collapse = TRUE,
+               fig.width = 5,  
+               fig.height = 4,
+               fig.align='center')
+
+
+```
+
+## Question 1
+
+1a) See below
+
+```{r}
+library("readr")
+library("tidyverse")
+library("rsample")
+library('glmnet')
+library('glmnetUtils')
+set.seed(1818)
+
+Bike_DF <- read_csv(here::here("datasets", "day.csv"))
+
+Bike_DF <- Bike_DF %>% mutate(weathersit = factor(weathersit), 
+    season = factor(season), yr = factor(yr), month = factor(mnth), 
+    holiday = factor(holiday), weekday = factor(weekday), workingday = factor(workingday), 
+    temp_sq = temp * temp, atemp_sq = atemp * atemp, hum_sq = hum * 
+        hum, windspeed_sq = windspeed * windspeed, )
+
+
+bike_split <- initial_split(Bike_DF, p = 0.8)
+bike_train <- training(bike_split)
+bike_test <- testing(bike_split)
+
+head(bike_train)
+```
+
+1b) This dataset is a two year log of bikes that were rented from Capital Bikeshare System in Washington D.C. which includes the following variables:
+
+* instant, which is a record index
+* dteday, the date the rental occurred on
+* season, the season of the rental
+* year, what year the rental occurred on
+* month, the month the rental occurred on
+* hr, the hour the rental occurred on
+* holiday, whether the day the renal was on was a holiday or not
+* weekday, what day of the week the rental occurred on
+* workingday, whether the rental occurred on a work day
+* weathersit, the conditions of the day the bike was rented on
+* temp, normalized temperature in C
+* atemp, normalized feeling temperature in C
+* hum, normlaized humidity
+* windspeed, normalized windspeed
+* casual, casual user count
+* registered, registered user count
+* cnt, a total count of users
+
+
+1c) I would assume this sapply runs is.factor on every column of the dataframe
+```{r}
+sapply(bike_train, is.factor)
+```
+
+1d) Fit a ridge model
+```{r}
+ridge_mod_bike <- cv.glmnet(cnt ~ season + holiday + month + 
+                         workingday + weathersit+ temp+ 
+                         hum+ windspeed, 
+                       data = bike_train, alpha = 0)
+
+```
+
+
+1e) On the x axis we have the log of lambda and on the y axis we have mean squared error. We start with a log(lambda) of around 5 which has an MSE of roughly 1,500,000 then it slowly increases until a log(lambda) of around 8 where MSE start to more sharply increase. The first dashed line represents lambda.min and the second line represents lambda.1se.
+```{r}
+plot(ridge_mod_bike)
+```
+1f) The lambda min value is roughly 120 and the lambda 1se value is roughly 530.If we wanted more regularization we would use the lambda.1se value which increases the shrinkage at the cost of slightly higher MSE.
+```{r}
+print(ridge_mod_bike$lambda.min)
+print(ridge_mod_bike$lambda.1se)
+```
+1g) Print the different coefficient values for the model.
+```{r}
+library(data.table)
+ridge_coefs <- data.table(varnames = rownames(coef(ridge_mod_bike, 
+    s = "lambda.min")), ridge_lambda_min = as.matrix(coef(ridge_mod_bike, 
+    s = "lambda.min")), ridge_lambda_1se = as.matrix(coef(ridge_mod_bike, 
+    s = "lambda.1se")))
+print(ridge_coefs)
+```
+1h) The lambda.1se version of the model has more bias compared to lambda.min. This is because lambda.1se uses more regularization then lambda.min. We would want this in some cases because it reduces complexity in the model and reduces the overall amount of variables. This make make the model more understandable or perhaps more actionable.
+
+
+## Question 2
+
+2a) Fit a lasso model
+```{r}
+lasso_mod_bike <- cv.glmnet(cnt ~ season + holiday + month + 
+                         workingday + weathersit+ temp+ 
+                         hum+ windspeed, 
+                       data = bike_train, alpha = 1)
+print(lasso_mod_bike)
+```
+
+2b) Output the lasso coefficients
+```{r}
+lasso_coefs <- data.table(varnames = rownames(coef(lasso_mod_bike, 
+    s = "lambda.min")), lasso_lambda_min = as.matrix(coef(lasso_mod_bike, 
+    s = "lambda.min")) %>% round(3), lasso_lambda_1se = as.matrix(coef(lasso_mod_bike, 
+    s = "lambda.1se")) %>% round(3)) %>% rename(lasso_lambda_min = 2, 
+    lasso_lambda_1se = 3)
+print(lasso_coefs)
+```
+2c) Lambda 1se has more zero values because it has more lasso penalization applied thus more of the coefficients have been reduced in magnitude.
+
+
+
+
+2d) Lambda min has 21 nonzero coefficients while lambda 1se has 16 nonzero coefficients.
+```{r}
+print(lasso_coefs%>% filter(lasso_lambda_min != 0) %>% count())
+print(lasso_coefs%>% filter(lasso_lambda_1se != 0) %>% count())
+```
+
+
+
+2e) On the x axis we have the log of lambda and on the y axis we have mean squared error. We start with a log(lambda) of 0 which has an MSE of roughly 1,700,000 then it slowly increases until a log(lambda) of around 4 where MSE start to more sharply increase. The first dashed line represents lambda.min and the second line represents lambda.1se.
+```{r}
+plot(lasso_mod_bike)
+```
+
+
+
+2f) Estimate an ElasticNet version of the model
+
+```{r}
+alpha_list <- seq(0,1, by = 0.1)
+enet_mod_bike <- cva.glmnet(cnt ~ season + holiday + month + 
+                         workingday + weathersit+ temp+ 
+                         hum+ windspeed,
+                       data = bike_train,
+                       alpha = alpha_list)
+print(enet_mod_bike)
+```
+2g) This plot has alpha values on the x axis and CV loss values on the y-axis. We start with a high CV loss for a alpha of 0 and then it immediately drops down at the next point and remains mostly static for the rest of the alpha values. This indicates that a lasso model would be best because the loss for ridge is high and there is no benefit to adding the ridge to the lasso model as the loss in the middle of the graph is static. This means that the lowest loss is found with lasso and that is a more straightforward model then ElasticNet.
+```{r}
+minlossplot(enet_mod_bike, 
+            cv.type = "min")
+```
+
+2h) The correct model to implement for this dataset would be a Lasso model. We can determine this by using an ElasticNet model to determine the optimal value of alpha. In this case we have a high loss for ridge (alpha of 0) and the loss is static for the remaining values of alpha therefore there is no benefit with using a more complex model (ElasticNet) on this dataset. Another advantage of lasso is that it will aid in variable selection when determining the four most important predictors.
+
+Our model uses the following predictors: season, holiday, month, workingday, weathersit, temp, hum, and windspeed. Using lasso we can determine the four most important variables with relative ease. As we increase our value of lambda we apply more regularization and we can looks for the remaining predictors. This means that these predictors will have the greatest magnitude impact on count of rented bikes. Using the below plot we can focus on the log(lambda) values of 5 to 7. we see that at large values of almbda the last variable to converge to zero is temp, thus it has the greatest impact on count. This is followed by season1, weathersit3, and weathersit1. Thus these four predictors are the most important, as they are nonzero for the highest lambda values meaning nonzero despite large amounts of standardization/penalization being applied.
+```{r}
+library("coefplot")
+coefpath(lasso_mod_bike)
+```
+
+
+
+
+
+

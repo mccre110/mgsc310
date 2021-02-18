@@ -1,0 +1,166 @@
+---
+title: "Problem Set 1"
+author: "Corey McCrea"
+subtitle: MGSC 310, Fall 2020, Zoom Professor Hersh
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+library(tidyverse)
+library(ggplot2)
+library(magrittr)
+library(formatR)
+knitr::opts_chunk$set(echo = TRUE)
+
+# set seed to your own favorite number
+set.seed(542)
+options(width=70)
+options(scipen=99)
+
+
+# general rchunk code options
+
+# this sets text to small
+opts_chunk$set(tidy.opts=list(width.wrap=50),tidy=TRUE, size = "vsmall")  
+opts_chunk$set(message = FALSE,                                          
+               warning = FALSE,
+               # "caching" stores objects in code chunks and only rewrites if you change things
+               cache = TRUE,                               
+               # automatically downloads dependency files
+               autodep = TRUE,
+               # 
+               cache.comments = FALSE,
+               # 
+               collapse = TRUE,
+               fig.width = 5,  
+               fig.height = 4,
+               fig.align='center')
+```
+
+## Question 2
+
+a) **dir_ls()** Returns the files and folders in the current working directory.
+
+```{r}
+library(fs)
+dir_ls()
+```
+b) Reading CSV
+```{r}
+movies <- read.csv(here::here("datasets", "IMDB_Movies.csv"))
+```
+
+c) 5043 Rows and 28 Columns
+```{r}
+dim(movies)
+```
+d) See below
+```{r}
+names(movies)
+```
+e) The following are character strings
+* color
+* director_name
+* genres
+* actor_1_name
+* movie_title
+* plot_keywords
+* movie_imdb_link
+* language
+* country
+* content_rating
+
+```{r}
+movies %>% glimpse()
+```
+f) See below
+```{r}
+movies %>% slice(1:5)
+```
+g) James Cameron
+```{r}
+movies %>% arrange(-gross) %>% slice(1:10)
+
+```
+
+h) 
+
+```{r}
+movies_sub <- movies %>% select(-movie_imdb_link)
+dim(movies_sub)
+```
+g) The pipe operator can be used to feed outputs into other inputs. It makes things a bit easier to read and understand, especially when there is a lot going on with a certain function.The only downside is it is a pain to type. The pipe operated could be used like **myData %>% head()** instead of **head(myData)** for example. The **arrange()** function can be used to sort your data based on a column of your choosing. If you want to reverse the sorting you can include a *-* for example **myData %>% arrange(-someColumn)**. The **select()** function is used to take a subset of your data if you want to look at certain columns. You can also include a *-* to include everything except a certain column. **glimpse() ** is very useful for getting a preview of your data. It prints all the columns and some sample entries along with the type of data the column is set to. Finally **slice()** can be used to look at certain rows i.e. **myData %>% slice(10:20)** if you wanted to look at certain rows in a dataset.
+
+##Question 3
+
+a)
+
+```{r}
+
+ggplot(movies ,aes(imdb_score, gross)) + geom_point()
+
+```
+b)
+```{r}
+ggplot(movies ,aes(imdb_score, gross)) + geom_point(alpha = 1/10)
+
+```
+c)
+```{r}
+
+movies %<>% mutate(gross_M = gross/1000000)
+
+```
+
+d)  Yes there is a positive correlation between gross and IMDB score
+
+```{r}
+
+ggplot(movies, aes(imdb_score, gross_M)) + geom_smooth(model = lm)
+
+```
+
+e)
+```{r}
+ggplot(movies%>% filter(director_name == "James Cameron"), aes(imdb_score, gross_M)) + geom_text(aes(label = movie_title), color = "magenta")
+
+```
+
+f)
+```{r}
+ggplot(movies%>% filter(director_name == "James Cameron"), aes(imdb_score, gross_M)) + geom_text(aes(label = movie_title), color = "magenta") + xlim(7,9) + ylim(0,800)
+```
+g)
+```{r}
+ggplot(movies%>% filter(director_name == "James Cameron"), aes(imdb_score, gross_M)) + 
+  geom_text(aes(label = movie_title), color = "magenta") + 
+  xlim(7,9) + ylim(0,800) + 
+  xlab("IMDB Score") + ylab("Gross in Millions") +
+  ggtitle(label = "Movie Gross vs. IMDB Score of James Cameron Movies")
+
+```
+h)
+
+```{r}
+p <- ggplot(movies%>% filter(director_name == "James Cameron"), aes(imdb_score, gross_M)) + 
+    geom_text(aes(label = movie_title), color = "magenta") + 
+    xlim(7,9) + ylim(0,800) + 
+    xlab("IMDB Score") + ylab("Gross in Millions") +
+    ggtitle(label = "Movie Gross vs. IMDB Score of James Cameron Movies")
+
+ggsave("MoviePlot.jpg", p, width = 6, height = 4)
+
+```
+
+
+
+
+
+
+
+
+
+
